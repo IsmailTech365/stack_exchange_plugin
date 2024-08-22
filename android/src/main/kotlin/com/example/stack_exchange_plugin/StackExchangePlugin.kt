@@ -20,46 +20,53 @@ class StackExchangePlugin: FlutterPlugin, MethodChannel.MethodCallHandler {
         context = binding.applicationContext
         channel.setMethodCallHandler(this)
     }
-
-    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        if (call.method == "fetchData") {
-            fetchData()
-            result.success("Fetching data...")
-        } else {
-            result.notImplemented()
-        }
+override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+    if (call.method == "fetchData") {
+        fetchData(result)
+    } else {
+        result.notImplemented()
     }
+}
 
-    private fun fetchData() {
-        FetchDataTask(context).execute()
-    }
+private fun fetchData(result: MethodChannel.Result) {
+    FetchDataTask(context, result).execute()
+}
 
-    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        channel.setMethodCallHandler(null)
-    }
+private class FetchDataTask(
+    private val context: Context,
+    private val result: MethodChannel.Result
+) : AsyncTask<Void, Void, String>() {
 
-    private class FetchDataTask(private val context: Context) : AsyncTask<Void, Void, String>() {
-        override fun doInBackground(vararg params: Void?): String {
-            return try {
-                val url = URL("https://api.stackexchange.com/2.3/questions?order=desc&sort=activity&site=stackoverflow")
-                val connection = url.openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                val inStream = BufferedReader(InputStreamReader(connection.inputStream))
-                val content = StringBuilder()
-                var inputLine: String?
-                while (inStream.readLine().also { inputLine = it } != null) {
-                    content.append(inputLine)
-                }
-                inStream.close()
-                connection.disconnect()
-                "Data fetched successfully!"
-            } catch (e: Exception) {
-                "Failed to fetch data!"
+    override fun doInBackground(vararg params: Void?): String {
+        return try {
+            val url = URL("https://api.stackexchange.com/2.3/questions?order=desc&sort=activity&site=stackoverflow")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            val inStream = BufferedReader(InputStreamReader(connection.inputStream))
+            val content = StringBuilder()
+            var inputLine: String?
+            while (inStream.readLine().also { inputLine = it } != null) {
+                content.append(inputLine)
             }
-        }
-
-        override fun onPostExecute(result: String) {
-            Toast.makeText(context, result, Toast.LENGTH_LONG).show()
+            inStream.close()
+            connection.disconnect()
+            content.toString()  // Return the fetched data
+        } catch (e: Exception) {
+            "Failed to fetch data!"
         }
     }
+
+    override fun onPostExecute(resultString: String) {
+        // Show a toast with the result
+        Toast.makeText(context, resultString, Toast.LENGTH_LONG).show()
+        
+        // Send the result back to Flutter
+        result.success(resultString)
+    }
+}
+
+   
+
+
+
 }
