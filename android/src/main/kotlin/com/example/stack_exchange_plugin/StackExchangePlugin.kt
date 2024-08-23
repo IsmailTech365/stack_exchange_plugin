@@ -1,35 +1,73 @@
-package com.example.stack_exchange_plugin
-
-import androidx.annotation.NonNull
-
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.MethodChannel.MethodCallHandler
-import io.flutter.plugin.common.MethodChannel.Result
+import retrofit2.*
+import retrofit2.converter.gson.GsonConverterFactory
 
-/** StackExchangePlugin */
-class StackExchangePlugin: FlutterPlugin, MethodCallHandler {
-  /// The MethodChannel that will the communication between Flutter and native Android
-  ///
-  /// This local reference serves to register the plugin with the Flutter Engine and unregister it
-  /// when the Flutter Engine is detached from the Activity
-  private lateinit var channel : MethodChannel
+// Data classes to map the API response
+data class Question(
+    val title: String,
+    val link: String,
+    val score: Int
+)
 
-  override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-    channel = MethodChannel(flutterPluginBinding.binaryMessenger, "stack_exchange_plugin")
-    channel.setMethodCallHandler(this)
-  }
+data class StackExchangeResponse(
+    val items: List<Question>
+)
 
-  override fun onMethodCall(call: MethodCall, result: Result) {
-    if (call.method == "getPlatformVersion") {
-      result.success("Android ${android.os.Build.VERSION.RELEASE}")
-    } else {
-      result.notImplemented()
+// Retrofit interface
+interface StackExchangeApiService {
+    @GET("questions?order=desc&sort=activity&site=stackoverflow")
+    fun getQuestions(
+        @Query("tagged") tags: String,
+        @Query("pagesize") pageSize: Int
+    ): Call<StackExchangeResponse>
+}
+
+// Main plugin class implementing FlutterPlugin and MethodCallHandler
+class StackExchangePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
+    private lateinit var channel: MethodChannel
+
+    override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        channel = MethodChannel(binding.binaryMessenger, "stack_exchange_plugin")
+        channel.setMethodCallHandler(this)
     }
-  }
 
-  override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-    channel.setMethodCallHandler(null)
-  }
+    override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        channel.setMethodCallHandler(null)
+    }
+
+    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        if (call.method == "getQuestions") {
+            val tags = call.argument<String>("tags") ?: ""
+            val pageSize = call.argument<Int>("pageSize") ?: 10
+
+            val retrofit = Retrofit.Builder()
+                .baseUrl("https://api.stackexchange.com/2.3/")
+                .addConverterFactory(GsonConverterFactory.create())
+                .build()
+
+            val service = retrofit.create(StackExchangeApiService::class.java)
+            val callApi = service.getQuestions(tags, pageSize)
+
+            callApi.enqueue(object : Callback<StackExchangeResponse> {
+                override fun onResponse(call: Call<StackExchangeResponse>, response: Response<StackExchangeResponse>) {
+                    if (response.isSuccessful) {
+                        val questions = response.body()?.items?.map {
+                            mapOf("title" to it.title, "link" to it.link, "score" to it.score)
+                        }
+                        result.success(questions)
+                    } else {
+                        result.error("API_ERROR", "Failed to fetch data", null)
+                    }
+                }
+
+                override fun onFailure(call: Call<StackExchangeResponse>, t: Throwable) {
+                    result.error("NETWORK_ERROR", t.message, null)
+                }
+            })
+        } else {
+            result.notImplemented()
+        }
+    }
 }
